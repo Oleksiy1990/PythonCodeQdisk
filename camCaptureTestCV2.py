@@ -1,3 +1,6 @@
+# This demonstrates the most elementary image capture functionality of cv2 
+# image processing package 
+
 import cv2
 import time
 import sys
