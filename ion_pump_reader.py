@@ -23,11 +23,14 @@ import datetime
 
 #These are the ASCII hexadecimals representing these characters
 #We need these characters for commands sent by RS 232
-_ACK = "\x06" # bytes(6)
-_ENQ = "\x05" # bytes(5)
-_CR  = "\x0D"
-_LF  = "\x0A"
 _ASTER = "\x2A"
+_CR  = "\x0D"
+
+## This is the old stuff from turbo gauge reader 
+#_ACK = "\x06" # bytes(6)
+#\_ENQ = "\x05" # bytes(5)
+#_LF  = "\x0A"
+
 
 
 class IonPumpReader:
@@ -36,11 +39,28 @@ class IonPumpReader:
     directly to read the pressure 
 
     """
+
+    command_dict = { "ModelNumber":"MO",
+                    "FirmwareVersion":"VE",
+                    "Current":"CU",
+                    "Pressure":"PR",
+                    "Voltage":"VO",
+                    "Status":"ST",
+                    "PressureUnits":"UN",
+                    "PumpSize":"PS",
+                    "Polarity":"PO",
+                    "HVONOFF":"HV",
+                    "MaxCurrent":"MC",
+                    "SetPoint":"SP",
+                    "MaxVoltage":"MV"}
+
+    OK_reply = "OK:" # This is the string at the beginning of any legal reply from the ion pump controller
+
+
     def __init__(self,porttoconnect,num=1,baudrate=9600,timeout=2):
         self.port = porttoconnect
         self.baud = baudrate
         self.time_out = timeout
-        self.gaugenumber = str(num)
 
 
     def __connect(self):
@@ -79,7 +99,36 @@ class IonPumpReader:
         except SerialException:
             print("Exception raised at disconnecting from port "+self.__ser.port)
 
-    def read(self,query="ModelNumber"):
+    def __string_analysis(self,data_string,query):
+        
+        if query in ["Current"]:
+            reply_analysis = re.search(r"(OK:)(\d{1}.\d{2}e[-+]\d{2})", data_string)
+        elif query in ["Voltage"]:
+            reply_analysis = re.search(r"(OK:)(\d{4})", data_string)
+        else:
+            print("Sorry, string formatting for this case has not been written yet. Returning full string")
+            return (False,data_string)
+
+        if reply_analysis == None: #None is returned when string matching fails and nothing is found
+            print("String matching failed, the reply is illegal or none")
+            return (False,None)
+        elif reply_analysis.group(1) != self.OK_reply: # The != compares values of the strings 
+            print("Reply is illegally formatted, something is wrong")
+            return (False,None)
+        elif reply_analysis.group(1) == self.OK_reply:
+            reply_float = float(reply_analysis.group(2))
+            return (True,reply_float)
+        else:
+            return (False,None)
+
+
+    def read(self,query="Current"):
+
+        if query in self.command_dict:
+            pass
+        else:
+            print("Such query is undefined. Check p. 25 of controller manual for allowed queries")
+            return None
 
         (connectionStatus,connection) = self.__connect()
 
@@ -90,56 +139,41 @@ class IonPumpReader:
         else:
             print("Connection established at port "+self.__ser.port)
 
-        
-        #initial_command = ("PR"+self.gaugenumber+_CR+_LF).encode("ascii")
-        initial_command = (_ASTER+"VE?,"+_CR).encode("ascii")
-        connection.write(initial_command)
 
-        necessary_reply = (_ACK+_CR+_LF).encode("ascii")
-        reply = connection.read(15)
-        print(reply)
-        
-        if reply != necessary_reply:
-            print("Communication failed at ACK stage")
-            self.__disconnect()
-            return None
+        #The next lines send the command to read the ion pump controller and then receive the reply 
 
-        connection.write(_ENQ.encode("ascii")) #Making the enquiry
-        
+        reading_command = (_ASTER+self.command_dict[query]+"?,"+_CR).encode("ascii")
+        connection.write(reading_command)
+
         reply = connection.read(15)
-        if len(list(reply)) != 15:
-            print("Unexpected length of the reply")
-            self.__disconnect()
-            return None
-        
+        self.__disconnect() # Connections should not be left hanging open
+
+
         reply_asString = reply.decode("ascii").strip()
+        #print(reply_asString)
 
-        self.__disconnect()
+        (readingCheck, result) = self.__string_analysis(reply_asString,query)
 
-        m = re.search(r"(\d)..(\d\.\d{4}E[-+]\d{2})", reply_asString) #Correct regular expression matching 
-        
-        if(m == None):
-            print("Failed to match the reply by regular expression matching")
-            return None
+        print(query,result)
+        return (readingCheck, result)
 
-        pressure = float(m.group(2))
-        return pressure
-
-def get_pressure(comport,gaugenum = 1):
-    reader1 = GaugeReader(comport,num=gaugenum)
-    current_pressure = reader1.read()
-    return current_pressure
         
 if __name__ == '__main__':
-    comport = "COM12"
-    rdr = GaugeReader(comport)
-    rdr.read()
-    sys.exit(0)
+    
+    comportSciencePumps = "COM5"
+    comportPreparationPumps = "COM8"
+    
+    readerScience = IonPumpReader(comportSciencePumps)
+    readerPreparation = IonPumpReader(comportPreparationPumps)
+    #readerScience.read("Current")
+    #readerPreparation.read("Voltage")
+    #sys.exit(0)
 
 
-    #folder_tosave = "C:\\Users\\QGMPC1\\Dropbox\\PressureLog\\"
-    folder_tosave = "C:\\Users\\SrBEC\\Desktop\\"
-    time_between_measurements = 2#60*5 #5 min, given in seconds
+    folder_tosave = "C:\\Users\\QGMPC1\\Dropbox\\IonPumpLog\\"
+    #folder_tosave = "C:\\Users\\SrBEC\\Dropbox\\IonPumpLog\\"
+    #folder_tosave = "C:\\Users\\SrBEC\\Desktop\\"
+    time_between_measurements = 60 # given in seconds
 
     while True:
         print("Running infinite loop")
@@ -150,19 +184,33 @@ if __name__ == '__main__':
         minute_now = timestamp_now.strftime("%M")
         second_now = timestamp_now.strftime("%S")
         
-        file_tosave = folder_tosave+datenow+"pump2.txt"
+        file_tosave_SciencePumps = folder_tosave+datenow+"SciencePumps.txt"
+        file_tosave_PreparationPumps = folder_tosave+datenow+"PreparationPumps.txt"
         
-        pressure = get_pressure(comport)
+        checkScience,currentScience = readerScience.read("Current")
+        checkScience,voltageScience = readerScience.read("Voltage")
 
-        if pressure is None:
-            print("Could not read the pressure. Not saving anything")
+        checkPreparation,currentPreparation = readerPreparation.read("Current")
+        checkPreparation,voltagePreparation = readerPreparation.read("Voltage")
+
+
+
+
+        if checkScience is False or checkPreparation is False:
+            print("Could not read whatever was asked. Not saving anything")
             time.sleep(time_between_measurements)
-            continue
+            continue # Takes the code back to the beginning of the while-loop
         
-        print("Pressure is %.3e mbar"%pressure)
-        file_output = open(file_tosave,"a")
-        file_output.write("%s %s %s %s %.4e mbar\n"%(full_timestamp,hour_now,minute_now,second_now,pressure))
-        file_output.close()
+
+        file_output_Science = open(file_tosave_SciencePumps,"a")
+        file_output_Science.write("%s %s %s %s Current %.3e A Voltage %.3e V\n"%(full_timestamp,hour_now,minute_now,second_now,currentScience,voltageScience))
+        file_output_Science.close()
+
+        file_output_Preparation = open(file_tosave_PreparationPumps,"a")
+        file_output_Preparation.write("%s %s %s %s Current %.3e A Voltage %.3e V\n"%(full_timestamp,hour_now,minute_now,second_now,currentPreparation,voltagePreparation))
+        file_output_Preparation.close()
+
+
         print("Press CTRL+C to terminate")
         time.sleep(time_between_measurements)
 
