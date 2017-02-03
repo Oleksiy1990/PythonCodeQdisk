@@ -40,7 +40,7 @@ while True:
 
    #c.send(b'Thank you for connecting')
    #c.send(b'%i'%randomnumber)
-   bytes_to_send = b"(%i,%i,%i,%i,%i,%i)"%(1,rdt[0],2,rdt[1],3,rdt[2])
+   bytes_to_send = b"(%i,%i,%i,%i,%i,%i,%i,%i)"%(2,rdt[1],1,rdt[0],3,rdt[2],4,rdt[3])
    print("sent this stuff",bytes_to_send)
    c.send(bytes_to_send)
 
